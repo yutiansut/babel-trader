@@ -15,7 +15,9 @@ void SerializeQuoteBegin(rapidjson::Writer<rapidjson::StringBuffer> &writer, con
 void SerializeQuoteEnd(rapidjson::Writer<rapidjson::StringBuffer> &writer, const Quote &quote);
 
 void SerializeMarketData(rapidjson::Writer<rapidjson::StringBuffer> &writer, const MarketData &md);
+void SerializeOrderBook(rapidjson::Writer<rapidjson::StringBuffer> &writer, const OrderBook &order_book);
 void SerializeKline(rapidjson::Writer<rapidjson::StringBuffer> &writer, const Kline &kline);
+void SerializeLevel2(rapidjson::Writer<rapidjson::StringBuffer> &writer, const OrderBookLevel2 &level2);
 
 void SerializeOrder(rapidjson::Writer<rapidjson::StringBuffer> &writer, const Order &order);
 void SerializeOrderStatus(rapidjson::Writer<rapidjson::StringBuffer> &writer, const OrderStatusNotify &order_status);
@@ -40,6 +42,7 @@ TradeQuery ConvertTradeQueryJson2Common(rapidjson::Value &msg);
 PositionQuery ConvertPositionQueryJson2Common(rapidjson::Value &msg);
 ProductQuery ConvertProductQueryJson2Common(rapidjson::Value &msg);
 TradeAccountQuery ConvertTradeAccountJson2Common(rapidjson::Value &msg);
+TradingDayQuery ConvertTradingDayJson2Common(rapidjson::Value &msg);
 
 
 bool SplitOrderDir(const char *order_dir, int len, const char **action, const char **dir);

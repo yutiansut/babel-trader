@@ -10,11 +10,13 @@
     - [持仓结构](#持仓结构)
         - [持仓结构类型1 (CTP)](#持仓结构类型1)
         - [持仓结构类型2 (XTP)](#持仓结构类型2)
+        - [持仓结构类型3 (okex)](#持仓结构类型3)
     - [持仓明细结构](#持仓明细结构)
         - [持仓明细结构类型1 (CTP)](#持仓明细结构类型1)
     - [交易账户结构](#交易账户结构)
         - [交易账户结构类型1 (CTP)](#交易账户结构类型1)
         - [交易账户结构类型2 (XTP)](#交易账户结构类型2)
+        - [交易账户结构类型3 (okex)](#交易账户结构类型3)
     - [产品信息结构](#产品信息结构)
         - [产品信息结构类型1 (CTP)](#产品信息结构类型1)
 - [请求指令](#请求指令)  
@@ -26,6 +28,7 @@
     - [查询持仓明细](#查询持仓明细)
     - [查询交易账户](#查询交易账户)
     - [查询产品信息](#查询产品信息)
+    - [查询交易日信息](#查询交易日信息)
 - [应答消息](#应答消息)
     - [上手确认订单接收](#上手确认订单接收)
     - [订单状态变更](#订单状态变更)
@@ -36,6 +39,8 @@
     - [查询持仓明细结果](#查询持仓明细结果)
     - [查询交易账户结果](#查询交易账户结果)
     - [查询产品信息结果](#查询产品信息结果)
+    - [查询交易日信息结果](#查询交易日信息结果)
+    - [错误消息通知](#错误消息通知)
 
 
 ## 使用提示
@@ -81,7 +86,6 @@ data: 根据msg, 对应不同的类型
     "type": "future",
     "symbol": "rb",
     "contract": "1901",
-    "contract_id": "1901",
     "order_type": "limit",
     "order_flag1": "speculation",
     "dir": "open_long",
@@ -102,8 +106,7 @@ market(string): 市场API - 例如: ctp, xtp, ib, bitmex, okex
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 order_type(string): 订单类型 - limit(限价单), market(市价单)
 order_flag1(string): 订单标识 - speculation(投机), hedge(套保), arbitrage(套利), marketmaker(做市商)
 dir(string): 订单方向 - buy(买), sell(卖), open_long(开多), open_short(开空), close_long(平多), close_short(平空), closetoday_long(平今多), closetoday_short(平今空), closehistory_long(平昨多), closehistory_short(平昨空), forceclose_long(强平多), forceclose_short(强平空)
@@ -131,6 +134,9 @@ ts(int64): 时间戳
     "submit_status": 1,
     "amount": 5,
     "dealed_amount": 5,
+    "avg_price": 0.0,
+    "face_value": 100.0,
+    "ts": 0,
     "order": { 订单结构 }
 }
 ```
@@ -141,6 +147,9 @@ status(int): 订单状态 - 0(未知), 1(部分成交), 2(完全成交), 3(已�
 submit_status(int): 订单提交状态 - 0(未知), 1(已提交), 2(已接受), 3(已拒绝)
 amount(int/double): 订单总数量
 dealed_amount(int/double): 订单已成交量
+avg_price(double): 订单的成交均价 (此字段只在虚拟货币交易所有效, 其他交易所可忽略)
+face_value(double): 合约面值 (此字段只在虚拟货币交易所有效, 其他交易所可忽略)
+ts(int64): 时间戳 (此字段只在虚拟货币交易所有效, 其他交易所可忽略)
 ```
 
 #### 订单成交结构
@@ -168,7 +177,7 @@ ts(int64): 成交时间戳
 #### 持仓结构
 注意: 持仓结构根据上手的不同, 将会返回不同的类型, 要根据返回消息中的 position_summary_type 来判断data内是什么结构体
 
-###### 持仓结构类型1
+##### 持仓结构类型1
 类型: type1
 上手: CTP
 示例:
@@ -180,7 +189,6 @@ ts(int64): 成交时间戳
     "type":"",
     "symbol":"rb",
     "contract":"1901",
-    "contract_id":"1901",
     "dir":"long",
     "order_flag1":"speculation",
     "date_type":"history",
@@ -211,8 +219,7 @@ outside_user_id(string): 上手交易账户id
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 dir(string): 持仓方向 - long(多头), short(空头)
 date_type(string): 持仓的日期类型 - today(今仓), history(昨仓)
 amount(double/int): 当前仓位
@@ -234,9 +241,9 @@ close_profit_by_date(double): 盯市平仓盈亏
 close_profit_by_trade(double): 逐笔平仓盈亏
 ```
 
-###### 持仓结构类型2
-类型: type2
-上手: XTP
+##### 持仓结构类型2
+类型: type2  
+上手: XTP  
 示例:
 ```
 {
@@ -277,6 +284,40 @@ locked_position(int): 已锁定标的
 usable_locked_position(int): 可用已锁定标的
 ```
 
+##### 持仓结构类型3
+类型: type3  
+上手: XTP  
+示例:
+```
+{
+    "margin_mode": "crossed",
+    "instrument_id": "BTC-USD-190329",
+    "leverage": "20",
+    "long_qty": "0",
+    "long_avail_qty": "0",
+    "long_avg_cost": "3434.66",
+    "long_settlement_price": "3434.66",
+    "short_qty": "5",
+    "short_avail_qty": "5",
+    "short_avg_cost": "3900.181",
+    "short_settlement_price": "3530.02"
+}
+```
+字段说明:
+```
+margin_mode(string): 账户类型  crossed(全仓), fixed(逐仓)
+instrument_id(string): 持仓合约
+leverage(string): 杠杆倍数
+long_qty(string): 多头仓位数量
+long_avail_qty(string): 多头仓位可平仓数量
+long_avg_cost(string): 多头仓位开仓平均价
+long_settlement_price(string): 多头仓位结算基准价
+short_qty(string): 空头仓位数量
+short_avail_qty(string): 空头仓位可平仓数量
+short_avg_cost(string): 空头仓位开仓平均价
+short_settlement_price(string): 空头仓位结算基准价
+```
+
 #### 持仓明细结构
 注意: 持仓结构根据上手的不同, 将会返回不同的类型, 要根据返回的position_detail_type来判断data内是什么结构体
 
@@ -292,7 +333,6 @@ usable_locked_position(int): 可用已锁定标的
     "type":"",
     "symbol":"rb",
     "contract":"1901",
-    "contract_id":"1901",
     "dir":"long",
     "order_flag1":"speculation",
     "open_date":"20181102",
@@ -321,8 +361,7 @@ outside_user_id(string): 上手交易账户id
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 dir(string): 持仓方向 - long(多头), short(空头)
 order_flag1(string): 订单标识 - speculation(投机), hedge(套保), arbitrage(套利), marketmaker(做市商)
 open_date(string): 开仓日期
@@ -346,7 +385,7 @@ position_profit_by_trade(double): 持仓盈亏(逐笔)
 #### 交易账户结构
 注意: 资金账户结构根据上手的不同, 将会返回不同的类型, 要根据返回的trade_account_type来判断data内是什么结构体
 
-###### 交易账户结构类型1
+##### 交易账户结构类型1
 类型: type1
 上手: CTP
 示例:
@@ -399,7 +438,7 @@ currency_id(string): 币种代码
 trading_day(string): 交易日
 ```
 
-###### 交易账户结构类型2
+##### 交易账户结构类型2
 类型: type2
 上手: XTP
 示例:
@@ -458,6 +497,37 @@ force_freeze_amount(double): 强锁资金
 preferred_amount(double): 可取资金
 ```
 
+##### 交易账户结构类型3
+类型: type3
+上手: okex
+示例:
+```
+{
+    // spot
+    "balance": "",
+    "available": "",
+    "hold": "",
+    
+    // future
+    "margin_mode": "crossed",
+    "equity": "0.14930731",
+    "total_avail_balance": "0.14528432",
+    "margin_ratio": "20.4893"
+}
+```
+
+字段说明:
+```
+balance: 币币账户余额
+available: 币币账户可用于交易的数量
+hold: 币币账户冻结
+
+margin_mode: 期货账户类型  crossed(全仓), fixed(逐仓)
+equity: 期货账户权益
+total_avail_balance: 期货账户余额
+margin_ratio: 期货账户全仓模式下的保证金率
+```
+
 #### 产品信息结构
 注意: 资金账户结构根据上手的不同, 将会返回不同的类型, 要根据返回的product_type来判断data内是什么结构体
 
@@ -473,7 +543,6 @@ preferred_amount(double): 可取资金
     "type":"future",
     "symbol":"rb",
     "contract":"1901",
-    "contract_id":"1901",
     "vol_multiple":10.0,
     "price_tick":1.0,
     "long_margin_ratio":0.1,
@@ -488,8 +557,7 @@ outside_user_id(string): 上手交易账户id
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 vol_multiple(double): 合约乘数
 price_tick(double): 最小变动价
 long_margin_ratio(double): 多头保证金比例 (当contract为空时, 此字段无效)
@@ -524,7 +592,6 @@ short_margin_ratio(double): 空头保证金比例 (当contract为空时, 此字�
         "type": "future",
         "symbol": "rb",
         "contract": "1901",
-        "contract_id": "1901"
     }
 }
 ```
@@ -537,8 +604,7 @@ market(string): 市场API - 例如: ctp, xtp, ib, bitmex, okex
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 ```
 
 
@@ -557,7 +623,6 @@ contract_id(string): 合约id - 例如: 1901, 20181901
         "type": "future",
         "symbol": "rb",
         "contract": "1901",
-        "contract_id": "1901"
     }
 }
 ```
@@ -571,8 +636,7 @@ market(string): 市场API - 例如: ctp, xtp, ib, bitmex, okex
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 ```
 
 说明:   
@@ -593,7 +657,6 @@ contract_id(string): 合约id - 例如: 1901, 20181901
         "type": "future",
         "symbol": "rb",
         "contract": "1901",
-        "contract_id": "1901"
     }
 }
 ```
@@ -607,8 +670,7 @@ market(string): 市场API - 例如: ctp, xtp, ib, bitmex, okex
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 ```
 
 #### 查询持仓
@@ -625,7 +687,6 @@ contract_id(string): 合约id - 例如: 1901, 20181901
         "type": "future",
         "symbol": "rb",
         "contract": "1901",
-        "contract_id": "1901"
     }
 }
 ```
@@ -637,8 +698,7 @@ market(string): 市场API - 例如: ctp, xtp, ib, bitmex, okex
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 ```
 
 #### 查询持仓明细
@@ -655,7 +715,6 @@ contract_id(string): 合约id - 例如: 1901, 20181901
         "type": "future",
         "symbol": "rb",
         "contract": "1901",
-        "contract_id": "1901"
     }
 }
 ```
@@ -667,8 +726,7 @@ market(string): 市场API - 例如: ctp, xtp, ib, bitmex, okex
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
-contract_id(string): 合约id - 例如: 1901, 20181901
+contract(string): 合约类型 - 例如: 1901
 ```
 
 #### 查询交易账户
@@ -681,7 +739,8 @@ contract_id(string): 合约id - 例如: 1901, 20181901
     "data": {
         "qry_id": "3",
         "market": "ctp",
-        "currency_id": ""
+        "currency_id": "",
+        "type": ""
     }
 }
 ```
@@ -691,6 +750,7 @@ contract_id(string): 合约id - 例如: 1901, 20181901
 qry_id(string): 查询请求号
 market(string): 市场API
 currency_id(string): 币种代码 (不填会根据对应的市场取默认值)
+type(string): 账户类型 - spot, future, option (okex强制要求填入, 其他市场可忽略)
 ```
 
 #### 查询产品信息
@@ -718,12 +778,36 @@ market(string): 市场API
 exchange(string): 交易所 - 例如：SHFE, SSE, NYMEX, bitmex, okex (使用公认的交易所缩写)
 type(string): 主题类型 - spot(现货), future(期货), option(期权)
 symbol(string): 符号 - 例如: rb, CL, btc, btc_usdt
-contract(string): 合约类型 - 例如: 1901, this_week
+contract(string): 合约类型 - 例如: 1901
 ```
 
-说明:
-如果是期货品种, 当contract为空时，查的品种信息, 当contract部位空时, 查的是合约信息
+说明:  
+symbol, contract全为空时, 默认查询所有合约信息  
+symbol不为空, contract为空时, 查询品种信息  
+symbol, contract都不为空时, 查询指定的合约信息  
 
+#### 查询交易日信息
+消息名: query_tradingday  
+
+示例:
+```
+{
+    "msg": "query_tradingday",
+    "data": {
+        "qry_id": "7",
+        "market": "ctp"
+    }
+}
+```
+
+字段说明:
+```
+qry_id(string): 查询请求号
+market(string): 市场API
+```
+
+说明:  
+当前只有ctp支持交易日查询
 
 ## 应答消息
 #### 上手确认订单接收
@@ -762,7 +846,7 @@ contract(string): 合约类型 - 例如: 1901, this_week
 示例:
 ```
 {
-    "msg": "orderstatus",
+    "msg": "orderdeal",
     "error_id": 0,
     "data": { 订单成交结构 }
     }
@@ -790,7 +874,6 @@ contract(string): 合约类型 - 例如: 1901, this_week
         "type":"future",
         "symbol":"rb",
         "contract":"1901",
-        "contract_id":"1901"
         "data":[
             { 订单状态结构 },
             { 订单状态结构 },
@@ -816,8 +899,7 @@ contract(string): 合约类型 - 例如: 1901, this_week
         "exchange":"SHFE",
         "type":"future",
         "symbol":"rb",
-        "contract":"1901",
-        "contract_id":"1901",
+        "contract":"1901",        
         "data":[
             { 订单成交结构 },
             { 订单成交结构 },
@@ -843,7 +925,6 @@ contract(string): 合约类型 - 例如: 1901, this_week
         "type":"future",
         "symbol":"rb",
         "contract":"1901",
-        "contract_id":"1901",
         "position_summary_type":"type1",
         "data":
         [
@@ -871,7 +952,6 @@ contract(string): 合约类型 - 例如: 1901, this_week
         "type":"",
         "symbol":"",
         "contract":"",
-        "contract_id":"",
         "position_detail_type":"type1",
         "data":
         [
@@ -933,3 +1013,43 @@ contract(string): 合约类型 - 例如: 1901, this_week
     }
 }
 ```
+
+#### 查询交易日信息结果
+消息名: rsp_qrytradingday  
+
+示例:
+```
+{
+    "msg":"rsp_qrytradingday",
+    "error_id":0,
+    "data":{
+        "qry_id":"1",
+        "market":"ctp",
+        "trading_day":"20190129"
+    }
+}
+```
+
+字段说明:
+```
+trading_day: 交易日
+```
+
+#### 错误消息通知
+消息名: error  
+
+示例:  
+```
+{
+    "msg":"error",
+    "error_id":-1,
+    "error_msg":"system error",
+    "data":
+    {
+        ...
+    }
+}
+```
+
+说明:  
+当系统发生内部错误, 例如与上手连接断开的情况下, 收到了下单或查询消息, 将会返回此消息, data中, 是请求消息的原本结构

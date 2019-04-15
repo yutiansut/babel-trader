@@ -15,6 +15,7 @@ enum MarketEnum
 	Market_Max,
 };
 extern const char *g_markets[Market_Max];
+MarketEnum getMarketEnum(const char *market);
 
 enum ExchangeEnum
 {
@@ -36,6 +37,7 @@ enum ExchangeEnum
 	Exchange_Max,
 };
 extern const char *g_exchanges[Exchange_Max];
+ExchangeEnum getExchangeEnum(const char *exchange);
 
 enum ProductTypeEnum
 {
@@ -48,12 +50,38 @@ enum ProductTypeEnum
 	ProductType_Max,
 };
 extern const char *g_product_types[ProductType_Max];
+ProductTypeEnum getProductTypeEnum(const char *product_type);
+
+enum QuoteInfo1Enum
+{
+	QuoteInfo1_Unknown = 0,
+	QuoteInfo1_MarketData,
+	QuoteInfo1_Kline,
+	QuoteInfo1_OrderBook,
+	QuoteInfo1_Level2,
+	QuoteInfo1_Depth,
+	QuoteInfo1_Ticker,
+	QuoteInfo1_Max,
+};
+extern const char *g_quote_info1[QuoteInfo1_Max];
+QuoteInfo1Enum getQuoteInfo1Enum(const char *quote_info1);
+
+enum QuoteInfo2Enum
+{
+	QuoteInfo2_Unknown = 0,
+	QuoteInfo2_1Hour,
+	QuoteInfo2_1Min,
+	QuoteInfo2_Max,
+};
+extern const char *g_quote_info2[QuoteInfo2_Max];
+QuoteInfo2Enum getQuoteInfo2Enum(const char *quote_info2);
 
 enum OrderTypeEnum
 {
 	OrderType_Unknown = 0,
 	OrderType_Limit,	// limit price
 	OrderType_Market,	// market price
+	OrderType_Best,		// best price
 	OrderType_Max,
 };
 extern const char *g_order_type[OrderType_Max];
@@ -80,6 +108,8 @@ enum OrderActionEnum
 	OrderAction_ForceClose,
 	OrderAction_Buy,
 	OrderAction_Sell,
+	OrderAction_Borrow,
+	OrderAction_Lend,
 	OrderAction_Max,
 };
 extern const char *g_order_action[OrderAction_Max];
@@ -122,6 +152,26 @@ enum OrderSubmitStatusEnum
 	OrderSubmitStatus_Accepted = 2,
 	OrderSubmitStatus_Rejected = 3,
 };
+
+enum OrderBookL2Action
+{
+	OrderBookL2Action_Unknown = 0,
+	OrderBookL2Action_Entrust,
+	OrderBookL2Action_Trade,
+	OrderBookL2Action_Max
+};
+extern const char *g_orderbookl2_action[OrderBookL2Action_Max];
+
+enum OrderBookL2TradeFlagEnum
+{
+	OrderBookL2TradeFlag_Unknown = 0,
+	OrderBookL2TradeFlag_Buy,
+	OrderBookL2TradeFlag_Sell,
+	OrderBookL2TradeFlag_Cancel,
+	OrderBookL2TradeFlag_Deal,
+	OrderBookL2TradeFlag_Max,
+};
+extern const char *g_orderbookl2_trade_flag[OrderBookL2TradeFlag_Max];
 
 }
 

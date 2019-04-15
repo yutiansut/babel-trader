@@ -2,6 +2,9 @@
 #define BABELTRADER_KLINE_H_
 
 #include <stdint.h>
+#if ENABLE_PERFORMANCE_TEST
+#include <time.h>
+#endif
 #include <string>
 #include <vector>
 
@@ -10,20 +13,32 @@
 namespace babeltrader
 {
 
-
 //////////////////////////
 // quotes
 
+#define QUOTE_SYMBOL_LEN 16
+#define QUOTE_CONTRACT_LEN 16
+#define QUOTE_INFO1_LEN 16
+#define QUOTE_INFO2_LEN 16
+
+#define BIDASK_MAX_LEN 10
+#define QUOTE_DATETIME_LEN 32
+
+#define QuoteBlockSize 1024
+
 struct Quote
 {
-	std::string market;			// e.g. okex, bitmex, CTP, XTP, IB ...
-	std::string exchange;		// e.g. okex, bitmex, SHFE, SSE, NYMEX ...
-	std::string type;			// e.g. spot, future ...
-	std::string symbol;			// e.g. btc, btc_usd, rb, cl ...
-	std::string contract;		// e.g. this_week, 1901 ...
-	std::string contract_id;	// e.g. 20180928, 1901 ...
-	std::string info1;			// e.g. ticker, depth, kline, marketdata
-	std::string info2;			// e.g. 1m, 1h
+	uint8_t market;		// MarketEnum
+	uint8_t exchange;	// ExchangeEnum
+	uint8_t type;		// ProductTypeEnum
+	uint8_t info1;		// QuoteInfo1Enum
+	char symbol[QUOTE_SYMBOL_LEN];
+	char contract[QUOTE_CONTRACT_LEN];
+	char contract_id[QUOTE_CONTRACT_LEN];
+	uint8_t info2;		// QuoteInfo2Enum
+#if ENABLE_PERFORMANCE_TEST
+	struct timespec ts[4];
+#endif
 };
 
 struct PriceVol
@@ -36,8 +51,9 @@ struct MarketData
 {
 	int64_t ts;
 	double last;
-	std::vector<PriceVol> bids;
-	std::vector<PriceVol> asks;
+	int bid_ask_len;
+	PriceVol bids[BIDASK_MAX_LEN];
+	PriceVol asks[BIDASK_MAX_LEN];
 	double vol;
 	double turnover;
 	double avg_price;
@@ -52,8 +68,48 @@ struct MarketData
 	double open;
 	double high;
 	double low;
-	std::string trading_day;
-	std::string action_day;
+	char trading_day[QUOTE_DATETIME_LEN];
+	char action_day[QUOTE_DATETIME_LEN];
+};
+
+struct OrderBook
+{
+	int64_t ts;
+	double last;
+	double vol;
+	int bid_ask_len;
+	PriceVol bids[BIDASK_MAX_LEN];
+	PriceVol asks[BIDASK_MAX_LEN];
+};
+
+struct OrderBookLevel2Entrust
+{
+	int64_t channel_no;
+	int64_t seq;
+	double price;
+	double vol;
+	OrderActionEnum dir;
+	OrderTypeEnum order_type;
+};
+
+struct OrderBookLevel2Trade
+{
+	int64_t channel_no;
+	int64_t seq;
+	double price;
+	double vol;
+	int64_t bid_no;
+	int64_t ask_no;
+	OrderBookL2TradeFlagEnum trade_flag;
+};
+
+struct OrderBookLevel2
+{
+	int64_t ts;
+	int64_t seq;
+	OrderBookL2Action action;
+	OrderBookLevel2Entrust entrust;
+	OrderBookLevel2Trade trade;
 };
 
 struct Kline
@@ -66,6 +122,53 @@ struct Kline
 	double vol;
 };
 
+enum QuoteBlockType
+{
+	QuoteBlockType_MarketData = 0,
+	QuoteBlockType_Kline,
+	QuoteBlockType_OrderBook,
+	QuoteBlockType_Level2,
+};
+
+struct QuoteMarketData
+{
+	uint8_t quote_type;
+	Quote quote;
+	MarketData market_data;
+};
+
+struct QuoteOrderBook
+{
+	uint8_t quote_type;
+	Quote quote;
+	OrderBook order_book;
+};
+
+struct QuoteOrderBookLevel2
+{
+	uint8_t quote_type;
+	Quote quote;
+	OrderBookLevel2 level2;
+};
+
+struct QuoteKline
+{
+	uint8_t quote_type;
+	Quote quote;
+	Kline kline;
+};
+
+struct QuoteBlockCommon
+{
+	uint8_t quote_type;
+	Quote quote;
+};
+
+struct QuoteBlock
+{
+	uint8_t quote_type;
+	char buf[QuoteBlockSize];
+};
 
 //////////////////////////
 // trade
@@ -182,6 +285,12 @@ struct ProductQuery
 	std::string exchange;
 	std::string symbol;
 	std::string contract;
+};
+
+struct TradingDayQuery
+{
+	std::string qry_id;
+	std::string market;
 };
 
 struct PositionSummaryType1
@@ -409,6 +518,30 @@ struct ProductType1
 	{}
 };
 
+#define TradeBlockSize 1024
+
+enum TradeBlockType
+{
+	TradeBlockType_OrderStatus = 0,
+	TradeBlockType_OrderDeal,
+};
+
+struct TradeBlock
+{
+	uint8_t trade_type;
+	char buf[TradeBlockSize];
+};
+
+// for map outside_order_id and system order info
+struct OrderMapInfo
+{
+	int64_t completed_ts;
+	Order order;
+
+	OrderMapInfo()
+		: completed_ts(0)
+	{}
+};
 
 }
 

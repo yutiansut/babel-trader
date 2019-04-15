@@ -66,9 +66,6 @@ private:
 
 	void ConvertMarketData(CThostFtdcDepthMarketDataField *pDepthMarketData, Quote &quote, MarketData &md);
 
-	void BroadcastMarketData(const Quote &quote, const MarketData &md);
-	void BroadcastKline(const Quote &quote, const Kline &kline);
-
 	int64_t GetUpdateTimeMs(CThostFtdcDepthMarketDataField *pDepthMarketData);
 
 	void SubTopics();
@@ -77,7 +74,6 @@ private:
 	CThostFtdcMdApi *api_;
 	CTPQuoteConf conf_;
 
-	uWS::Hub uws_hub_;
 	WsService ws_service_;
 	HttpService http_service_;
 

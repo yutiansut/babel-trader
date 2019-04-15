@@ -15,21 +15,32 @@ void SerializeQuoteBegin(rapidjson::Writer<rapidjson::StringBuffer> &writer, con
 	writer.Key("data");
 	writer.StartObject();
 	writer.Key("market");
-	writer.String(quote.market.c_str());
-	writer.Key("exchange_id");
-	writer.String(quote.exchange.c_str());
+	writer.String(g_markets[quote.market]);
+	writer.Key("exchange");
+	writer.String(g_exchanges[quote.exchange]);
 	writer.Key("type");
-	writer.String(quote.type.c_str());
+	writer.String(g_product_types[quote.type]);
 	writer.Key("symbol");
-	writer.String(quote.symbol.c_str());
+	writer.String(quote.symbol);
 	writer.Key("contract");
-	writer.String(quote.contract.c_str());
+	writer.String(quote.contract);
 	writer.Key("contract_id");
-	writer.String(quote.contract_id.c_str());
+	writer.String(quote.contract_id);
 	writer.Key("info1");
-	writer.String(quote.info1.c_str());
+	writer.String(g_quote_info1[quote.info1]);
 	writer.Key("info2");
-	writer.String(quote.info2.c_str());
+	writer.String(g_quote_info2[quote.info2]);
+
+#if ENABLE_PERFORMANCE_TEST
+	writer.Key("t0_s");
+	writer.Int64(quote.ts[0].tv_sec);
+	writer.Key("t0_ns");
+	writer.Int64(quote.ts[0].tv_nsec);
+	writer.Key("t1_s");
+	writer.Int64(quote.ts[1].tv_sec);
+	writer.Key("t1_ns");
+	writer.Int64(quote.ts[1].tv_nsec);
+#endif
 	
 	// inner data
 	writer.String("data");
@@ -50,19 +61,19 @@ void SerializeMarketData(rapidjson::Writer<rapidjson::StringBuffer> &writer, con
 	writer.Double(md.last);
 	writer.Key("bids");
 	writer.StartArray();
-	for (auto price_vol : md.bids) {
+	for (int i = 0; i < md.bid_ask_len; i++ ){
 		writer.StartArray();
-		writer.Double(price_vol.price);
-		writer.Int(price_vol.vol);
+		writer.Double(md.bids[i].price);
+		writer.Int(md.bids[i].vol);
 		writer.EndArray();
 	}
 	writer.EndArray();
 	writer.Key("asks");
 	writer.StartArray();
-	for (auto price_vol : md.asks) {
+	for (int i = 0; i < md.bid_ask_len; i++) {
 		writer.StartArray();
-		writer.Double(price_vol.price);
-		writer.Int(price_vol.vol);
+		writer.Double(md.asks[i].price);
+		writer.Int(md.asks[i].vol);
 		writer.EndArray();
 	}
 	writer.EndArray();
@@ -95,9 +106,36 @@ void SerializeMarketData(rapidjson::Writer<rapidjson::StringBuffer> &writer, con
 	writer.Key("low");
 	writer.Double(md.low);
 	writer.Key("trading_day");
-	writer.String(md.trading_day.c_str());
+	writer.String(md.trading_day);
 	writer.Key("action_day");
-	writer.String(md.action_day.c_str());
+	writer.String(md.action_day);
+}
+void SerializeOrderBook(rapidjson::Writer<rapidjson::StringBuffer> &writer, const OrderBook &order_book)
+{
+	writer.Key("ts");
+	writer.Int64(order_book.ts);
+	writer.Key("last");
+	writer.Double(order_book.last);
+	writer.Key("bids");
+	writer.StartArray();
+	for (auto price_vol : order_book.bids) {
+		writer.StartArray();
+		writer.Double(price_vol.price);
+		writer.Int(price_vol.vol);
+		writer.EndArray();
+	}
+	writer.EndArray();
+	writer.Key("asks");
+	writer.StartArray();
+	for (auto price_vol : order_book.asks) {
+		writer.StartArray();
+		writer.Double(price_vol.price);
+		writer.Int(price_vol.vol);
+		writer.EndArray();
+	}
+	writer.EndArray();
+	writer.Key("vol");
+	writer.Double(order_book.vol);
 }
 
 void SerializeKline(rapidjson::Writer<rapidjson::StringBuffer> &writer, const Kline &kline)
@@ -114,6 +152,51 @@ void SerializeKline(rapidjson::Writer<rapidjson::StringBuffer> &writer, const Kl
 	writer.Double(kline.close);
 	writer.Key("vol");
 	writer.Double(kline.vol);
+}
+void SerializeLevel2(rapidjson::Writer<rapidjson::StringBuffer> &writer, const OrderBookLevel2 &level2)
+{
+	writer.Key("ts");
+	writer.Int64(level2.ts);
+	writer.Key("action");
+	writer.String(g_orderbookl2_action[level2.action]);
+	writer.Key("data");
+	writer.StartObject();
+	switch (level2.action)
+	{
+	case OrderBookL2Action_Entrust:
+	{
+		writer.Key("channel_no");
+		writer.Int64(level2.entrust.channel_no);
+		writer.Key("seq");
+		writer.Int64(level2.entrust.seq);
+		writer.Key("price");
+		writer.Double(level2.entrust.price);
+		writer.Key("vol");
+		writer.Double(level2.entrust.vol);
+		writer.Key("dir");
+		writer.String(g_order_dir[level2.entrust.dir]);
+		writer.Key("order_type");
+		writer.String(g_order_type[level2.entrust.order_type]);
+	}break;
+	case OrderBookL2Action_Trade:
+	{
+		writer.Key("channel_no");
+		writer.Int64(level2.trade.channel_no);
+		writer.Key("seq");
+		writer.Int64(level2.trade.seq);
+		writer.Key("price");
+		writer.Double(level2.trade.price);
+		writer.Key("vol");
+		writer.Double(level2.trade.vol);
+		writer.Key("bid_no");
+		writer.Int64(level2.trade.bid_no);
+		writer.Key("ask_no");
+		writer.Int64(level2.trade.ask_no);
+		writer.Key("trade_flag");
+		writer.String(g_orderbookl2_trade_flag[level2.trade.trade_flag]);
+	}break;
+	}
+	writer.EndObject();
 }
 
 void SerializeOrder(rapidjson::Writer<rapidjson::StringBuffer> &writer, const Order &order)
@@ -783,6 +866,19 @@ TradeAccountQuery ConvertTradeAccountJson2Common(rapidjson::Value &msg)
 	}
 
 	return std::move(tradeaccount_qry);
+}
+TradingDayQuery ConvertTradingDayJson2Common(rapidjson::Value &msg)
+{
+	TradingDayQuery tradingday_qry;
+
+	if (msg.HasMember("qry_id") && msg["qry_id"].IsString()) {
+		tradingday_qry.qry_id = msg["qry_id"].GetString();
+	}
+	if (msg.HasMember("market") && msg["market"].IsString()) {
+		tradingday_qry.market = msg["market"].GetString();
+	}
+
+	return std::move(tradingday_qry);
 }
 
 

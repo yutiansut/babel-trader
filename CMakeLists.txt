@@ -27,6 +27,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # add custom cmake modules
 INCLUDE(FindPackageHandleStandardArgs)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_LIST_DIR}/cmake/Modules)
+include(${CMAKE_CURRENT_LIST_DIR}/thirdparty/muggleCC/cmake/muggle_utils.cmake)
 
 # dependencies
 find_package(Threads)
@@ -114,6 +115,24 @@ set_target_properties(muggleCC
 	FOLDER "thirdparty/muggle"
 )
 
+# ctp
+muggle_install_headers(${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/include include/ctp)
+if (WIN32)
+	file(GLOB ctp_libs ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/lib/win64/*)
+else()
+	file(GLOB ctp_libs ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/lib/linux/*)
+endif()
+install(FILES ${ctp_libs} DESTINATION lib)
+
+# xtp
+muggle_install_headers(${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/include include/xtp)
+if (WIN32)
+	file(GLOB xtp_libs ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/lib/win64/*)
+else()
+	file(GLOB xtp_libs ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/lib/linux/*)
+endif()
+install(FILES ${xtp_libs} DESTINATION lib)
+
 # dependencies
 set(dependencies_inc
 	${OPENSSL_INCLUDE_DIR}
@@ -131,17 +150,17 @@ set(dependencies_inc
 file(GLOB common_h ${CMAKE_CURRENT_LIST_DIR}/src/common/*.h)
 file(GLOB common_cpp ${CMAKE_CURRENT_LIST_DIR}/src/common/*.cpp)
 if (WIN32)
-	add_library(BabelTrader-Common STATIC
+	add_library(babeltrader-common-cpp STATIC
 		${common_h}
 		${common_cpp}
 	)
 else()
-	add_library(BabelTrader-Common STATIC
+	add_library(babeltrader-common-cpp STATIC
 		${common_cpp}
 	)
 endif()
-target_include_directories(BabelTrader-Common PRIVATE ${dependencies_inc})
-target_link_libraries(BabelTrader-Common uWS glog)
+target_include_directories(babeltrader-common-cpp PRIVATE ${dependencies_inc})
+target_link_libraries(babeltrader-common-cpp uWS glog)
 
 
 # utils function
@@ -155,7 +174,7 @@ function(add_serv name folder)
 	endif(WIN32)
 	add_dependencies(${name} uWS glog)
 	target_include_directories(${name} PRIVATE ${dependencies_inc})
-	target_link_libraries(${name} uWS glog BabelTrader-Common)
+	target_link_libraries(${name} uWS glog babeltrader-common-cpp)
 endfunction(add_serv)
 
 # include and link directories
@@ -172,58 +191,66 @@ else()
 	)
 endif()
 
-# BabelTrader-CTP-Quote
-add_serv(BabelTrader-CTP-Quote ${CMAKE_CURRENT_LIST_DIR}/src/ctp-quotes)
-target_include_directories(BabelTrader-CTP-Quote PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/include)
-target_link_libraries(BabelTrader-CTP-Quote thostmduserapi)
+# performance test
+option(BABELTRADER_ENABLE_PERFORMANCE "enable performance" OFF)
+if (${BABELTRADER_ENABLE_PERFORMANCE})
+	add_definitions(-DENABLE_PERFORMANCE_TEST=1)
+else()
+	add_definitions(-DENABLE_PERFORMANCE_TEST=0)
+endif()
+
+# babeltrader-ctp-quote
+add_serv(babeltrader-ctp-quote ${CMAKE_CURRENT_LIST_DIR}/src/ctp-quotes)
+target_include_directories(babeltrader-ctp-quote PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/include)
+target_link_libraries(babeltrader-ctp-quote thostmduserapi)
 if (WIN32)
 	add_custom_command(
-		TARGET BabelTrader-CTP-Quote
+		TARGET babeltrader-ctp-quote
 		PRE_LINK
 		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/lib/win64/thostmduserapi.dll $(OutDir)
 	)
-	set_target_properties(BabelTrader-CTP-Quote PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
+	set_target_properties(babeltrader-ctp-quote PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
 endif()
 
-# BabelTrader-CTP-Trade
-add_serv(BabelTrader-CTP-Trade ${CMAKE_CURRENT_LIST_DIR}/src/ctp-trade)
-target_include_directories(BabelTrader-CTP-Trade PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/include)
-target_link_libraries(BabelTrader-CTP-Trade thosttraderapi)
+# babeltrader-ctp-trade
+add_serv(babeltrader-ctp-trade ${CMAKE_CURRENT_LIST_DIR}/src/ctp-trade)
+target_include_directories(babeltrader-ctp-trade PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/include)
+target_link_libraries(babeltrader-ctp-trade thosttraderapi)
 if (WIN32)
 	add_custom_command(
-		TARGET BabelTrader-CTP-Trade
+		TARGET babeltrader-ctp-trade
 		PRE_LINK
 		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/thirdparty/ctp/lib/win64/thosttraderapi.dll $(OutDir)
 	)
-	set_target_properties(BabelTrader-CTP-Trade PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
+	set_target_properties(babeltrader-ctp-trade PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
 endif()
 
-# BabelTrader-XTP-Trade
-add_serv(BabelTrader-XTP-Trade ${CMAKE_CURRENT_LIST_DIR}/src/xtp-trade)
-target_include_directories(BabelTrader-XTP-Trade PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/include)
-target_link_libraries(BabelTrader-XTP-Trade xtptraderapi)
+# babeltrader-xtp-trade
+add_serv(babeltrader-xtp-trade ${CMAKE_CURRENT_LIST_DIR}/src/xtp-trade)
+target_include_directories(babeltrader-xtp-trade PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/include)
+target_link_libraries(babeltrader-xtp-trade xtptraderapi)
 if (WIN32)
 	add_custom_command(
-		TARGET BabelTrader-XTP-Trade
+		TARGET babeltrader-xtp-trade
 		PRE_LINK
 		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/lib/win64/xtptraderapi.dll $(OutDir)
 	)
-	set_target_properties(BabelTrader-XTP-Trade PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
-	target_compile_definitions(BabelTrader-XTP-Trade PRIVATE ISLIB)
+	set_target_properties(babeltrader-xtp-trade PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
+	target_compile_definitions(babeltrader-xtp-trade PRIVATE ISLIB)
 endif()
 
-# BabelTrader-XTP-Quote
-add_serv(BabelTrader-XTP-Quote ${CMAKE_CURRENT_LIST_DIR}/src/xtp-quotes)
-target_include_directories(BabelTrader-XTP-Quote PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/include)
-target_link_libraries(BabelTrader-XTP-Quote xtpquoteapi)
+# babeltrader-xtp-quote
+add_serv(babeltrader-xtp-quote ${CMAKE_CURRENT_LIST_DIR}/src/xtp-quotes)
+target_include_directories(babeltrader-xtp-quote PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/include)
+target_link_libraries(babeltrader-xtp-quote xtpquoteapi)
 if (WIN32)
 	add_custom_command(
-		TARGET BabelTrader-XTP-Quote
+		TARGET babeltrader-xtp-quote
 		PRE_LINK
 		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/thirdparty/xtp/lib/win64/xtpquoteapi.dll $(OutDir)
 	)
-	set_target_properties(BabelTrader-XTP-Quote PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
-	target_compile_definitions(BabelTrader-XTP-Quote PRIVATE ISLIB)
+	set_target_properties(babeltrader-xtp-quote PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
+	target_compile_definitions(babeltrader-xtp-quote PRIVATE ISLIB)
 endif()
 
 # fake target
@@ -239,3 +266,13 @@ else()
 	)
 endif()
 
+# cpp demo
+add_serv(test_quote ${CMAKE_CURRENT_LIST_DIR}/demo/cpp/test_quote)
+
+if (WIN32)
+	set_target_properties(test_quote
+		PROPERTIES
+		FOLDER "demo"
+		VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)"
+	)
+endif()

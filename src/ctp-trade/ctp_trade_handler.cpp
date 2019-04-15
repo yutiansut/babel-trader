@@ -8,9 +8,22 @@
 #include "common/utils_func.h"
 
 
+struct TradeBlockOrderStatus
+{
+	uint8_t trade_type;
+	CThostFtdcOrderField order;
+};
+
+struct TradeBlockOrderDeal
+{
+	uint8_t trade_type;
+	CThostFtdcTradeField trade;
+};
+
 CTPTradeHandler::CTPTradeHandler(CTPTradeConf &conf)
 	: api_(nullptr)
 	, api_ready_(false)
+	, req_login_cnt_(0)
 	, conf_(conf)
 	, ws_service_(nullptr, this)
 	, http_service_(nullptr, this)
@@ -216,16 +229,7 @@ void CTPTradeHandler::QueryProduct(uWS::WebSocket<uWS::SERVER> *ws, ProductQuery
 		throw std::runtime_error("trade api not ready yet");
 	}
 
-	if (product_query.symbol.size() == 0)
-	{
-		throw std::runtime_error("can't query product without symbol");
-	}
-	if (product_query.exchange.size() == 0)
-	{
-		throw std::runtime_error("can't query product without exchange");
-	}
-
-	if (product_query.contract.size() == 0)
+	if (product_query.symbol.size() != 0 && product_query.contract.size() == 0)
 	{
 		CThostFtdcQryProductField req = { 0 };
 		strncpy(req.ExchangeID, product_query.exchange.c_str(), sizeof(req.ExchangeID) - 1);
@@ -248,8 +252,12 @@ void CTPTradeHandler::QueryProduct(uWS::WebSocket<uWS::SERVER> *ws, ProductQuery
 	else
 	{
 		CThostFtdcQryInstrumentField req = { 0 };
-		strncpy(req.ExchangeID, product_query.exchange.c_str(), sizeof(req.ExchangeID) - 1);
-		snprintf(req.InstrumentID, sizeof(req.InstrumentID) - 1, "%s%s", product_query.symbol.c_str(), product_query.contract.c_str());
+		if (product_query.exchange.size() > 0) {
+			strncpy(req.ExchangeID, product_query.exchange.c_str(), sizeof(req.ExchangeID) - 1);
+		}
+		if (product_query.symbol.size() > 0 && product_query.contract.size() > 0) {
+			snprintf(req.InstrumentID, sizeof(req.InstrumentID) - 1, "%s%s", product_query.symbol.c_str(), product_query.contract.c_str());
+		}
 
 		OutputInstrumentQuery(&req);
 
@@ -265,6 +273,19 @@ void CTPTradeHandler::QueryProduct(uWS::WebSocket<uWS::SERVER> *ws, ProductQuery
 			throw std::runtime_error(buf);
 		}
 	}
+}
+void CTPTradeHandler::QueryTradingDay(uWS::WebSocket<uWS::SERVER> *ws, TradingDayQuery &tradingday_qry)
+{
+	char trading_day[16] = { 0 };
+	{
+		std::unique_lock<std::mutex> lock(conn_info_mtx_);
+		if (ctp_tradeing_day_.size() > 0)
+		{
+			strncpy(trading_day, ctp_tradeing_day_.c_str(), sizeof(trading_day)-1);
+		}
+	}
+
+	RspTradingDayQry(ws, tradingday_qry.qry_id.c_str(), g_markets[Market_CTP], trading_day);
 }
 
 void CTPTradeHandler::OnFrontConnected()
@@ -315,15 +336,40 @@ void CTPTradeHandler::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin,
 	// output
 	OutputRspUserLogin(pRspUserLogin, pRspInfo, nRequestID, bIsLast);
 
-	// record connection information
-	FillConnectionInfo(pRspUserLogin->TradingDay, pRspUserLogin->LoginTime, pRspUserLogin->FrontID, pRspUserLogin->SessionID);
+	if (pRspInfo != nullptr && pRspInfo->ErrorID != 0)
+	{
+		auto th = std::thread([&] {
+			if (req_login_cnt_ < 3)
+			{
+				LOG(WARNING) << "failed login trade service, sleep!";
 
-	// confirm settlement
-	DoSettlementConfirm();
+				int ms = 1000 * 60;
+#if WIN32
+				Sleep(ms);
+#else
+				usleep((double)(ms) * 1000.0);
+#endif
 
-	ctp_tradeing_day_ = pRspUserLogin->TradingDay;
-	ctp_login_time_ = pRspUserLogin->LoginTime;
-	api_ready_ = true;
+				LOG(INFO) << "try to login trade service again";
+				req_login_cnt_++;
+				DoLogin();
+			}
+			else
+			{
+				LOG(ERROR) << "failed login trade service! exit!!!";
+				exit(1);
+			}
+		});
+		th.detach();
+	}
+	else
+	{
+		// record connection information
+		FillConnectionInfo(pRspUserLogin->TradingDay, pRspUserLogin->LoginTime, pRspUserLogin->FrontID, pRspUserLogin->SessionID);
+
+		// confirm settlement
+		DoSettlementConfirm();
+	}
 }
 void CTPTradeHandler::OnRspUserLogout(CThostFtdcUserLogoutField *pUserLogout, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
 {
@@ -348,7 +394,7 @@ void CTPTradeHandler::OnRspOrderInsert(CThostFtdcInputOrderField *pInputOrder, C
 	GetAndCleanRecordOrder(&order, pInputOrder->UserID, pInputOrder->OrderRef, ctp_front_id_, ctp_session_id_);
 	ConvertInsertOrderCTP2Common(*pInputOrder, order);
 
-	ws_service_.BroadcastConfirmOrder(uws_hub_, order, pRspInfo->ErrorID, pRspInfo->ErrorMsg);
+	BroadcastConfirmOrder(order, pRspInfo->ErrorID, pRspInfo->ErrorMsg);
 }
 void CTPTradeHandler::OnErrRtnOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo)
 {
@@ -361,32 +407,28 @@ void CTPTradeHandler::OnRtnOrder(CThostFtdcOrderField *pOrder)
 	// output
 	OutputRtnOrder(pOrder);
 
-	// notify
-	if (pOrder->OrderSysID[0] == '\0' && pOrder->OrderStatus == THOST_FTDC_OST_Unknown) {
-		return;
-	}
+	static_assert(sizeof(TradeBlock) >= sizeof(TradeBlockOrderStatus), "TradeBlockOrderStatus size is not enough");
 
-	Order order;
-	OrderStatusNotify order_status;
-	bool ret = GetAndCleanRecordOrder(&order, pOrder->UserID, pOrder->OrderRef, pOrder->FrontID, pOrder->SessionID);
-	ConvertRtnOrderCTP2Common(pOrder, order, order_status);
-	if (ret)
-	{
-		ws_service_.BroadcastConfirmOrder(uws_hub_, order, 0, "");
-	}
-	ws_service_.BroadcastOrderStatus(uws_hub_, order, order_status, 0, "");
+	TradeBlockOrderStatus msg = { 0 };
+	msg.trade_type = TradeBlockType_OrderStatus;
+	memcpy(&msg.order, pOrder, sizeof(CThostFtdcOrderField));
+
+	TradeBlock *p_block = (TradeBlock*)&msg;
+	tunnel_.Write(*p_block);
 }
 void CTPTradeHandler::OnRtnTrade(CThostFtdcTradeField *pTrade)
 {
 	// output
 	OutputRtnTrade(pTrade);
 
-	// notify
-	Order order;
-	OrderDealNotify order_deal;
-	ConvertRtnTradeCTP2Common(pTrade, order, order_deal);
+	static_assert(sizeof(TradeBlock) >= sizeof(TradeBlockOrderDeal), "TradeBlockOrderDeal size is not enough");
 
-	ws_service_.BroadcastOrderDeal(uws_hub_, order, order_deal);
+	TradeBlockOrderDeal msg = { 0 };
+	msg.trade_type = TradeBlockType_OrderDeal;
+	memcpy(&msg.trade, pTrade, sizeof(CThostFtdcTradeField));
+
+	TradeBlock *p_block = (TradeBlock*)&msg;
+	tunnel_.Write(*p_block);
 }
 
 void CTPTradeHandler::OnRspOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
@@ -438,7 +480,7 @@ void CTPTradeHandler::OnRspQryOrder(CThostFtdcOrderField *pOrder, CThostFtdcRspI
 			if (pRspInfo) {
 				error_id = pRspInfo->ErrorID;
 			}
-			ws_service_.RspOrderQry(ws, order_qry, common_orders, common_order_status, error_id);
+			RspOrderQry(ws, order_qry, common_orders, common_order_status, error_id);
 		}
 
 		rsp_qry_order_caches_.erase(nRequestID);
@@ -487,7 +529,7 @@ void CTPTradeHandler::OnRspQryTrade(CThostFtdcTradeField *pTrade, CThostFtdcRspI
 			if (pRspInfo) {
 				error_id = pRspInfo->ErrorID;
 			}
-			ws_service_.RspTradeQry(ws, trade_qry, common_orders, common_deals, error_id);
+			RspTradeQry(ws, trade_qry, common_orders, common_deals, error_id);
 		}
 
 		rsp_qry_trade_caches_.erase(nRequestID);
@@ -533,7 +575,7 @@ void CTPTradeHandler::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *
 			if (pRspInfo) {
 				error_id = pRspInfo->ErrorID;
 			}
-			ws_service_.RspPositionQryType1(ws, position_qry, positions, error_id);
+			RspPositionQryType1(ws, position_qry, positions, error_id);
 		}
 
 		rsp_qry_position_caches_.erase(nRequestID);
@@ -579,7 +621,7 @@ void CTPTradeHandler::OnRspQryInvestorPositionDetail(CThostFtdcInvestorPositionD
 			if (pRspInfo) {
 				error_id = pRspInfo->ErrorID;
 			}
-			ws_service_.RspPositionDetailQryType1(ws, position_detail_qry, position_details, error_id);
+			RspPositionDetailQryType1(ws, position_detail_qry, position_details, error_id);
 		}
 
 		rsp_qry_position_detail_caches_.erase(nRequestID);
@@ -625,7 +667,7 @@ void CTPTradeHandler::OnRspQryTradingAccount(CThostFtdcTradingAccountField *pTra
 			if (pRspInfo) {
 				error_id = pRspInfo->ErrorID;
 			}
-			ws_service_.RspTradeAccountQryType1(ws, trade_account_qry, trade_accounts, error_id);
+			RspTradeAccountQryType1(ws, trade_account_qry, trade_accounts, error_id);
 		}
 
 		rsp_qry_trade_account_caches_.erase(nRequestID);
@@ -671,7 +713,7 @@ void CTPTradeHandler::OnRspQryProduct(CThostFtdcProductField *pProduct, CThostFt
 			if (pRspInfo) {
 				error_id = pRspInfo->ErrorID;
 			}
-			ws_service_.RspProductQryType1(ws, product_qry, products, error_id);
+			RspProductQryType1(ws, product_qry, products, error_id);
 		}
 
 		rsp_qry_product_caches_.erase(nRequestID);
@@ -717,7 +759,7 @@ void CTPTradeHandler::OnRspQryInstrument(CThostFtdcInstrumentField *pInstrument,
 			if (pRspInfo) {
 				error_id = pRspInfo->ErrorID;
 			}
-			ws_service_.RspProductQryType1(ws, product_qry, products, error_id);
+			RspProductQryType1(ws, product_qry, products, error_id);
 		}
 
 		rsp_qry_instrument_caches_.erase(nRequestID);
@@ -741,6 +783,9 @@ void CTPTradeHandler::RunAPI()
 }
 void CTPTradeHandler::RunService()
 {
+	std::thread th(&CTPTradeHandler::AsyncLoop, this);
+	th.detach();
+
 	auto loop_thread = std::thread([&] {
 		uws_hub_.onConnection([&](uWS::WebSocket<uWS::SERVER> *ws, uWS::HttpRequest req) {
 			ws_service_.onConnection(ws, req);
@@ -767,15 +812,107 @@ void CTPTradeHandler::RunService()
 	loop_thread.join();
 }
 
+void CTPTradeHandler::AsyncLoop()
+{
+	std::queue<TradeBlock> queue;
+	int cnt = 0;
+	while (true) {
+		tunnel_.Read(queue, true);
+
+		while (queue.size() > 0)
+		{
+			TradeBlock &msg = queue.front();
+
+			switch (msg.trade_type) {
+			case TradeBlockType_OrderStatus:
+			{
+				OnOrderStatus(msg);
+			}break;
+			case TradeBlockType_OrderDeal:
+			{
+				OnOrderDeal(msg);
+			}break;
+			}
+
+			queue.pop();
+		}
+
+		// try clear clear order info map
+		++cnt;
+		if (cnt >= 5)
+		{
+			ClearOrderInfoMap();
+			cnt = 0;
+		}
+	}
+}
+
+void CTPTradeHandler::OnOrderStatus(TradeBlock &msg)
+{
+	static_assert(sizeof(TradeBlock) >= sizeof(TradeBlockOrderStatus), "TradeBlockOrderStatus size is not enough");
+
+	TradeBlockOrderStatus *p_block = (TradeBlockOrderStatus*)&msg;
+	CThostFtdcOrderField *pOrder = &p_block->order;
+
+	// notify
+	if (pOrder->OrderSysID[0] == '\0' && pOrder->OrderStatus == THOST_FTDC_OST_Unknown) {
+		return;
+	}
+
+	Order order;
+	OrderStatusNotify order_status;
+	bool ret = GetAndCleanRecordOrder(&order, pOrder->UserID, pOrder->OrderRef, pOrder->FrontID, pOrder->SessionID);
+	ConvertRtnOrderCTP2Common(pOrder, order, order_status);
+	if (ret)
+	{
+		BroadcastConfirmOrder(order, 0, "");
+
+		// save order information
+		CacheOrderInfoMap(order, order_status);
+	}
+
+	// get order information
+	if (!ret)
+	{
+		GetOrderInfoMap(order, order_status);
+	}
+
+	BroadcastOrderStatus(order, order_status, 0, "");
+}
+void CTPTradeHandler::OnOrderDeal(TradeBlock &msg)
+{
+	static_assert(sizeof(TradeBlock) >= sizeof(TradeBlockOrderDeal), "TradeBlockOrderDeal size is not enough");
+
+	TradeBlockOrderDeal *p_block = (TradeBlockOrderDeal*)&msg;
+	CThostFtdcTradeField *pTrade = &p_block->trade;
+
+	// notify
+	Order order;
+	OrderDealNotify order_deal;
+	ConvertRtnTradeCTP2Common(pTrade, order, order_deal);
+
+	// get order information
+	GetOrderInfoMap(order);
+
+	BroadcastOrderDeal(order, order_deal);
+}
+
 void CTPTradeHandler::FillConnectionInfo(const char *tradeing_day, const char *login_time, int front_id, int session_id)
 {
+	std::unique_lock<std::mutex> lock(conn_info_mtx_);
+
 	ctp_tradeing_day_ = tradeing_day;
 	ctp_login_time_ = login_time;
 	ctp_front_id_ = front_id;
 	ctp_session_id_ = session_id;
+
+	req_login_cnt_ = 0;
+	api_ready_ = true;
 }
 void CTPTradeHandler::ClearConnectionInfo()
 {
+	std::unique_lock<std::mutex> lock(conn_info_mtx_);
+
 	api_ready_ = false;
 
 	ctp_tradeing_day_ = "";
@@ -1189,6 +1326,71 @@ bool CTPTradeHandler::GetAndCleanRecordOrder(Order *p_order, const std::string &
 		{
 			return false;
 		}
+	}
+}
+
+void CTPTradeHandler::CacheOrderInfoMap(Order &order, OrderStatusNotify &order_status)
+{
+
+	if (order.outside_id.size() > 0 && !(
+		order_status.order_submit_status == OrderSubmitStatus_Rejected ||
+		order_status.order_status == OrderStatus_AllDealed ||
+		order_status.order_status == OrderStatus_Canceled ||
+		order_status.order_status == OrderStatus_Rejected)
+		)
+	{
+		OrderMapInfo order_map_info;
+		order_map_info.order = order;
+		outside_order_maps_[order.outside_id] = std::move(order_map_info);
+	}
+}
+void CTPTradeHandler::GetOrderInfoMap(Order &order)
+{
+	auto it = outside_order_maps_.find(order.outside_id);
+	if (it != outside_order_maps_.end())
+	{
+		Order &map_order = it->second.order;
+		order.user_id = map_order.user_id;
+		order.order_id = map_order.order_id;
+		order.client_order_id = map_order.client_order_id;
+	}
+}
+void CTPTradeHandler::GetOrderInfoMap(Order &order, OrderStatusNotify &order_status)
+{
+	auto it = outside_order_maps_.find(order.outside_id);
+	if (it != outside_order_maps_.end())
+	{
+		Order &map_order = it->second.order;
+		order.user_id = map_order.user_id;
+		order.order_id = map_order.order_id;
+		order.client_order_id = map_order.client_order_id;
+
+		if (order_status.order_submit_status == OrderSubmitStatus_Rejected ||
+			order_status.order_status == OrderStatus_AllDealed ||
+			order_status.order_status == OrderStatus_Canceled)
+		{
+			it->second.completed_ts = (int64_t)time(NULL);
+		}
+	}
+}
+void CTPTradeHandler::ClearOrderInfoMap()
+{
+	int64_t cur_ts = (int64_t)time(NULL);
+	std::vector<std::string> wait_del_keys;
+	for (auto it = outside_order_maps_.begin(); it != outside_order_maps_.end(); ++it)
+	{
+		if (it->second.completed_ts != 0)
+		{
+			if (cur_ts - it->second.completed_ts > 60)
+			{
+				wait_del_keys.push_back(it->first);
+			}
+		}
+	}
+
+	for (std::string &key : wait_del_keys)
+	{
+		outside_order_maps_.erase(key);
 	}
 }
 

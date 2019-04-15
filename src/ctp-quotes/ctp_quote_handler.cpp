@@ -36,18 +36,17 @@ std::vector<Quote> CTPQuoteHandler::GetSubTopics(std::vector<bool> &vec_b)
 
 	std::unique_lock<std::mutex> lock(topic_mtx_);
 	for (auto it = sub_topics_.begin(); it != sub_topics_.end(); ++it) {
-		Quote msg;
-		msg.market = g_markets[Market_CTP];
-		msg.exchange = "";
-		msg.type = g_product_types[ProductType_Future];
-		CTPSplitInstrument(it->first.c_str(), msg.symbol, msg.contract);
-		msg.contract_id = msg.contract;
-		msg.info1 = "marketdata";
+		Quote msg = { 0 };
+		msg.market = Market_CTP;
+		msg.exchange = Exchange_Unknown;
+		msg.type = ProductType_Future;
+		CTPSplitInstrument(it->first.c_str(), it->first.size(), msg.symbol, msg.contract);
+		msg.info1 = QuoteInfo1_MarketData;
 		topics.push_back(msg);
 		vec_b.push_back(it->second);
 
-		msg.info1 = "kline";
-		msg.info2 = "1m";
+		msg.info1 = QuoteInfo1_Kline;
+		msg.info2 = QuoteInfo2_1Min;
 		topics.push_back(msg);
 		vec_b.push_back(it->second);
 	}
@@ -56,7 +55,8 @@ std::vector<Quote> CTPQuoteHandler::GetSubTopics(std::vector<bool> &vec_b)
 }
 void CTPQuoteHandler::SubTopic(const Quote &msg)
 {
-	auto instrument = msg.symbol + msg.contract;
+	char instrument[128] = { 0 };
+	snprintf(instrument, sizeof(instrument) - 1, "%s%s", msg.symbol, msg.contract);
 	{
 		std::unique_lock<std::mutex> lock(topic_mtx_);
 		if (sub_topics_.find(instrument) != sub_topics_.end() && sub_topics_[instrument] == true) {
@@ -70,13 +70,14 @@ void CTPQuoteHandler::SubTopic(const Quote &msg)
 	char buf[2][64];
 	char* topics[2];
 	topics[0] = buf[0];
-	strncpy(buf[0], instrument.c_str(), 64-1);
+	strncpy(buf[0], instrument, 64-1);
 
 	api_->SubscribeMarketData(topics, 1);
 }
 void CTPQuoteHandler::UnsubTopic(const Quote &msg)
 {
-	auto instrument = msg.symbol + msg.contract;
+	char instrument[128] = { 0 };
+	snprintf(instrument, sizeof(instrument) - 1, "%s%s", msg.symbol, msg.contract);
 	{
 		std::unique_lock<std::mutex> lock(topic_mtx_);
 		if (sub_topics_.find(instrument) == sub_topics_.end()) {
@@ -87,7 +88,7 @@ void CTPQuoteHandler::UnsubTopic(const Quote &msg)
 	char buf[2][64];
 	char* topics[2];
 	topics[0] = buf[0];
-	strncpy(buf[0], instrument.c_str(), 64 - 1);
+	strncpy(buf[0], instrument, 64 - 1);
 
 	api_->UnSubscribeMarketData(topics, 1);
 }
@@ -113,11 +114,7 @@ void CTPQuoteHandler::OnFrontDisconnected(int nReason)
 		}
 	}
 
-	// reconnect
-	auto old_api = api_;
-	RunAPI();
-	old_api->RegisterSpi(nullptr);
-	old_api->Release();
+	// don't need to reconnect, ctp will do it auto
 }
 void CTPQuoteHandler::OnHeartBeatWarning(int nTimeLapse)
 {
@@ -202,25 +199,32 @@ void CTPQuoteHandler::OnRspUnSubForQuoteRsp(CThostFtdcSpecificInstrumentField *p
 
 void CTPQuoteHandler::OnRtnDepthMarketData(CThostFtdcDepthMarketDataField *pDepthMarketData)
 {
-#ifndef NDEBUG
-	OutputMarketData(pDepthMarketData);
+	QuoteMarketData msg = { 0 };
+
+#if ENABLE_PERFORMANCE_TEST
+	// OutputMarketData(pDepthMarketData);
+	static QuoteTransferMonitor monitor;
+	monitor.start();
+
+	msg.quote.ts[0] = monitor.ts_;
 #endif
 
-	// convert to common struct
-	Quote quote;
-	MarketData md;
-	ConvertMarketData(pDepthMarketData, quote, md);
-
-	BroadcastMarketData(quote, md);
+	ConvertMarketData(pDepthMarketData, msg.quote, msg.market_data);
+	BroadcastMarketData(msg);
 
 	// try update kline
 	int64_t sec = (int64_t)time(nullptr);
-	Kline kline;
-	if (kline_builder_.updateMarketData(sec, pDepthMarketData->InstrumentID, md, kline)) {
-		quote.info1 = "kline";
-		quote.info2 = "1m";
-		BroadcastKline(quote, kline);
+	QuoteKline kline_msg = { 0 };
+	if (kline_builder_.updateMarketData(sec, pDepthMarketData->InstrumentID, msg.market_data, kline_msg.kline)) {
+		memcpy(&kline_msg.quote, &msg.quote, sizeof(kline_msg.quote));
+		kline_msg.quote.info1 = QuoteInfo1_Kline;
+		kline_msg.quote.info2 = QuoteInfo2_1Min;
+		BroadcastKline(kline_msg);
 	}
+
+#if ENABLE_PERFORMANCE_TEST
+	monitor.end("ctp OnDepthMarketData");
+#endif
 }
 void CTPQuoteHandler::OnRtnForQuoteRsp(CThostFtdcForQuoteRspField *pForQuoteRsp) {}
 
@@ -239,6 +243,8 @@ void CTPQuoteHandler::RunAPI()
 }
 void CTPQuoteHandler::RunService()
 {
+	RunAsyncLoop();
+
 	auto loop_thread = std::thread([&] {
 		uws_hub_.onConnection([&](uWS::WebSocket<uWS::SERVER> *ws, uWS::HttpRequest req) {
 			ws_service_.onConnection(ws, req);
@@ -522,33 +528,38 @@ void CTPQuoteHandler::OutputMarketData(CThostFtdcDepthMarketDataField *pDepthMar
 
 void CTPQuoteHandler::ConvertMarketData(CThostFtdcDepthMarketDataField *pDepthMarketData, Quote &quote, MarketData &md)
 {
-	// split instrument into symbol and contract
-	std::string symbol, contract;
-	CTPSplitInstrument(pDepthMarketData->InstrumentID, symbol, contract);
-
 	// get update time
 	int64_t ts = GetUpdateTimeMs(pDepthMarketData);
 
-	quote.market = g_markets[Market_CTP];
-	quote.exchange = pDepthMarketData->ExchangeID;
-	quote.type = g_product_types[ProductType_Future];
-	quote.symbol = std::move(symbol);
-	quote.contract = std::move(contract);
-	quote.contract_id = quote.contract;
-	quote.info1 = "marketdata";
+	quote.market = Market_CTP;
+	quote.exchange = getExchangeEnum(pDepthMarketData->ExchangeID);
+	quote.type = ProductType_Future;
+	CTPSplitInstrument(pDepthMarketData->InstrumentID, strlen(pDepthMarketData->InstrumentID), quote.symbol, quote.contract);
+	quote.info1 = QuoteInfo1_MarketData;
 
 	md.ts = ts;
 	md.last = pDepthMarketData->LastPrice;
-	md.bids.push_back({ pDepthMarketData->BidPrice1, pDepthMarketData->BidVolume1 });
-	md.bids.push_back({ pDepthMarketData->BidPrice2, pDepthMarketData->BidVolume2 });
-	md.bids.push_back({ pDepthMarketData->BidPrice3, pDepthMarketData->BidVolume3 });
-	md.bids.push_back({ pDepthMarketData->BidPrice4, pDepthMarketData->BidVolume4 });
-	md.bids.push_back({ pDepthMarketData->BidPrice5, pDepthMarketData->BidVolume5 });
-	md.asks.push_back({ pDepthMarketData->AskPrice1, pDepthMarketData->AskVolume1 });
-	md.asks.push_back({ pDepthMarketData->AskPrice2, pDepthMarketData->AskVolume2 });
-	md.asks.push_back({ pDepthMarketData->AskPrice3, pDepthMarketData->AskVolume3 });
-	md.asks.push_back({ pDepthMarketData->AskPrice4, pDepthMarketData->AskVolume4 });
-	md.asks.push_back({ pDepthMarketData->AskPrice5, pDepthMarketData->AskVolume5 });
+	md.bid_ask_len = 5;
+	md.bids[0].price = pDepthMarketData->BidPrice1;
+	md.bids[0].vol = pDepthMarketData->BidVolume1;
+	md.bids[1].price = pDepthMarketData->BidPrice2;
+	md.bids[1].vol = pDepthMarketData->BidVolume2;
+	md.bids[2].price = pDepthMarketData->BidPrice3;
+	md.bids[2].vol = pDepthMarketData->BidVolume3;
+	md.bids[3].price = pDepthMarketData->BidPrice4;
+	md.bids[3].vol = pDepthMarketData->BidVolume4;
+	md.bids[4].price = pDepthMarketData->BidPrice5;
+	md.bids[4].vol = pDepthMarketData->BidVolume5;
+	md.asks[0].price = pDepthMarketData->AskPrice1;
+	md.asks[0].vol = pDepthMarketData->AskVolume1;
+	md.asks[1].price = pDepthMarketData->AskPrice2;
+	md.asks[1].vol = pDepthMarketData->AskVolume2;
+	md.asks[2].price = pDepthMarketData->AskPrice3;
+	md.asks[2].vol = pDepthMarketData->AskVolume3;
+	md.asks[3].price = pDepthMarketData->AskPrice4;
+	md.asks[3].vol = pDepthMarketData->AskVolume4;
+	md.asks[4].price = pDepthMarketData->AskPrice5;
+	md.asks[4].vol = pDepthMarketData->AskVolume5;
 	md.vol = pDepthMarketData->Volume;
 	md.turnover = pDepthMarketData->Turnover;
 	md.avg_price = pDepthMarketData->AveragePrice;
@@ -563,40 +574,8 @@ void CTPQuoteHandler::ConvertMarketData(CThostFtdcDepthMarketDataField *pDepthMa
 	md.open = pDepthMarketData->OpenPrice;
 	md.high = pDepthMarketData->HighestPrice;
 	md.low = pDepthMarketData->LowestPrice;
-	md.trading_day = pDepthMarketData->TradingDay;
-	md.action_day = pDepthMarketData->ActionDay;
-}
-
-void CTPQuoteHandler::BroadcastMarketData(const Quote &quote, const MarketData &md)
-{
-	// serialize
-	rapidjson::StringBuffer s;
-	rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-
-	SerializeQuoteBegin(writer, quote);
-	SerializeMarketData(writer, md);
-	SerializeQuoteEnd(writer, quote);
-
-#ifndef NDEBUG
-	LOG(INFO) << s.GetString();
-#endif
-
-	uws_hub_.getDefaultGroup<uWS::SERVER>().broadcast(s.GetString(), s.GetLength(), uWS::OpCode::TEXT);
-}
-void CTPQuoteHandler::BroadcastKline(const Quote &quote, const Kline &kline)
-{
-	rapidjson::StringBuffer s;
-	rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-
-	SerializeQuoteBegin(writer, quote);
-	SerializeKline(writer, kline);
-	SerializeQuoteEnd(writer, quote);
-
-#ifndef NDEBUG
-	LOG(INFO) << s.GetString();
-#endif
-
-	uws_hub_.getDefaultGroup<uWS::SERVER>().broadcast(s.GetString(), s.GetLength(), uWS::OpCode::TEXT);
+	strncpy(md.trading_day, pDepthMarketData->TradingDay, sizeof(md.trading_day) - 1);
+	strncpy(md.action_day, pDepthMarketData->ActionDay, sizeof(md.action_day) - 1);
 }
 
 int64_t CTPQuoteHandler::GetUpdateTimeMs(CThostFtdcDepthMarketDataField *pDepthMarketData)

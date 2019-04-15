@@ -34,6 +34,7 @@ public:
 	virtual void QueryPositionDetail(uWS::WebSocket<uWS::SERVER> *ws, PositionQuery &position_query) override;
 	virtual void QueryTradeAccount(uWS::WebSocket<uWS::SERVER> *ws, TradeAccountQuery &tradeaccount_query) override;
 	virtual void QueryProduct(uWS::WebSocket<uWS::SERVER> *ws, ProductQuery &query_product) override;
+	virtual void QueryTradingDay(uWS::WebSocket<uWS::SERVER> *ws, TradingDayQuery &tradingday_qry) override;
 
 	////////////////////////////////////////
 	// spi virtual function
@@ -65,6 +66,11 @@ public:
 private:
 	void RunAPI();
 	void RunService();
+
+	void AsyncLoop();
+
+	void OnOrderStatus(TradeBlock &msg);
+	void OnOrderDeal(TradeBlock &msg);
 
 	void FillConnectionInfo(const char *tradeing_day, const char *login_time, int front_id, int session_id);
 	void ClearConnectionInfo();
@@ -100,6 +106,13 @@ private:
 	// order cache
 	void RecordOrder(Order &order, const std::string &order_ref, int front_id, int session_id);
 	bool GetAndCleanRecordOrder(Order *p_order, const std::string &user_id, const std::string &order_ref, int front_id, int session_id);
+
+	////////////////////////////////////////
+	// order map
+	void CacheOrderInfoMap(Order &order, OrderStatusNotify &order_status);
+	void GetOrderInfoMap(Order &order);
+	void GetOrderInfoMap(Order &order, OrderStatusNotify &order_status);
+	void ClearOrderInfoMap();
 
 	////////////////////////////////////////
 	// field convert
@@ -173,10 +186,10 @@ private:
 private:
 	CThostFtdcTraderApi *api_;
 	bool api_ready_;
+	int req_login_cnt_;
 
 	CTPTradeConf conf_;
 
-	uWS::Hub uws_hub_;
 	WsService ws_service_;
 	HttpService http_service_;
 
@@ -185,6 +198,7 @@ private:
 	int order_action_ref_;
 
 	// connection info
+	std::mutex conn_info_mtx_;
 	std::string ctp_tradeing_day_;
 	std::string ctp_login_time_;
 	int ctp_front_id_;
@@ -193,6 +207,11 @@ private:
 	// order recorder
 	std::map<std::string, Order> wait_deal_orders_;
 	std::mutex wati_deal_order_mtx_;
+
+	// ourside_order_id map
+	std::map<std::string, OrderMapInfo> outside_order_maps_;
+
+	muggle::Tunnel<TradeBlock> tunnel_;
 
 	// query cache
 	QueryCache qry_cache_;
