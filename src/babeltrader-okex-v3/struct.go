@@ -40,17 +40,16 @@ type Ticker struct {
 	Timestamp    string `json:"timestamp"`
 }
 
-// NOTE: the fucking okex v3 api, spot/swap ticker's price/vol fields use string, futures's price/vol fields use double?!!! :(
 type FuturesTicker struct {
-	InstrumentId string  `json:"instrument_id"`
-	Last         float64 `json:"last"`
-	BestBid      float64 `json:"best_bid"`
-	BestAsk      float64 `json:"best_ask"`
-	Open24H      float64 `json:"open_24h"`
-	High24H      float64 `json:"high_24h"`
-	Low24H       float64 `json:"low_24h"`
-	Vol24H       float64 `json:"volume_24h"`
-	Timestamp    string  `json:"timestamp"`
+	InstrumentId string `json:"instrument_id"`
+	Last         string `json:"last"`
+	BestBid      string `json:"best_bid"`
+	BestAsk      string `json:"best_ask"`
+	Open24H      string `json:"open_24h"`
+	High24H      string `json:"high_24h"`
+	Low24H       string `json:"low_24h"`
+	Vol24H       string `json:"volume_24h"`
+	Timestamp    string `json:"timestamp"`
 }
 
 type Depth struct {
@@ -81,7 +80,7 @@ type Query struct {
 type OrderRet struct {
 	OrderId   string `json:"order_id"`
 	ClientOid string `json:"client_oid"`
-	ErrId     int    `json:"error_code"`
+	ErrId     string `json:"error_code"`
 	ErrMsg    string `json:"error_message"`
 	Result    bool   `json:"result"`
 }
@@ -98,7 +97,7 @@ type OrderTrade struct {
 	Type           string `json:"type"`
 	FilledSize     string `json:"filled_size"`
 	FilledNotional string `json:"filled_notional"`
-	Status         string `json:"status"`
+	Status         string `json:"state"`
 	MarginTrading  string `json:"margin_trading"`
 
 	FilledQty   string `json:"filled_qty"`

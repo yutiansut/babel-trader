@@ -27,10 +27,10 @@ Babel Trader 将一些常用的交易API统一变为ws/restful服务的形式，
 ## Babel Trader的做法
 推荐架构：
 ```
-client1 ------> |================================| ---> BabelTrader service 1 ---> API1 server
-client2 ------> |         系统其他service         | ---> BabelTrader service 2 ---> API2 server
-        ......  |  网关, 风控，分账户,行情落库...  |    ......
-clientn ------> |================================| ---> BabelTrader service n ---> APIn server
+strategy1 ------> |================================| ---> BabelTrader service 1 ---> API1 server
+strategy2 ------> |         系统其他service         | ---> BabelTrader service 2 ---> API2 server
+        ......    |  网关,风控,交易记录,行情落库...  |    ......
+strategyN ------> |================================| ---> BabelTrader service n ---> APIn server
 ```
 使用Babel Trader的服务，提供了统一的 ws/restful 接口，方便开发者实现代码解耦和自己的分布式系统。  
 缺点:   
@@ -50,6 +50,10 @@ linux:
 1. 更改config目录里, 对应市场的账户和密码, 以及订阅配置
 1. 进入解压后的babeltrader-*-linux目录层中, export LD_LIBRARY_PATH=./
 1. 运行babeltrader开头的文件, 便得到了对应市场的上手服务
+
+
+#### 特别注意
+在使用CTP行情时, 由于郑商所ActionDay不能代表自然日, 所以在babeltrader-ctp-quote中, 自然日是取决于连接成功时的UTC时间. 所以强烈不建议依靠CTP的重连机制做每日连接, 使用定时任务, 在每天早上8点之后启动, 便可保证CTP行情服务的时间戳正常生成  
 
 
 ## 文档和demo
